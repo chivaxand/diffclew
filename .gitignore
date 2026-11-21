@@ -1,0 +1,14 @@
+.*
+!.gitignore
+!.gitattributes
+!.github/
+__pycache__/
+*.py[cod]
+Thumbs.db
+*.pem
+*.key
+*.crt
+
+# local only: publishing script, notes, scratch files
+dev/
+_*

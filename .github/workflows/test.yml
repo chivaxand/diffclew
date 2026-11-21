@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch: # manual run from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    timeout-minutes: 5
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # one failing version does not cancel the other
+      matrix:
+        include:
+          - python: '3.8'          # the oldest supported (README); newer Ubuntu images no longer ship it
+            os: ubuntu-24.04
+          - python: '3.x'          # the newest stable release
+            os: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Parser self-tests
+        run: python -B diffclew.py --test
+
+      - name: Server smoke test (a throwaway repository, read-only API calls)
+        run: |
+          repo=$(mktemp -d)
+          git -C "$repo" init -q -b main
+          git -C "$repo" -c user.name=CI -c user.email=ci@example.com commit -q --allow-empty -m "first"
+          python -B diffclew.py "$repo" --port 8222 &
+          for i in $(seq 20); do curl -sf -o /dev/null http://127.0.0.1:8222/ && break; sleep 0.5; done
+          api() { curl -sf -X POST -H 'X-DiffClew: 1' -H 'Content-Type: application/json' -d "$2" "http://127.0.0.1:8222/api/$1"; }
+          curl -sf http://127.0.0.1:8222/ | grep -q '<title>DiffClew</title>'
+          api refs "{\"repo\": \"$repo\"}" | grep -q '"branch": "main"'
+          api log "{\"repo\": \"$repo\"}" | grep -q '"subject": "first"'
+          # requests without the header are refused
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{}' http://127.0.0.1:8222/api/refs)" = 403
+          kill %1
